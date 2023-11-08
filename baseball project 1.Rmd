@@ -1,0 +1,154 @@
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(modelr)
+```
+
+#Read in data & omit NA functions
+```{r}
+people <- read.csv("C:/Users/pgiom/Downloads/R/People_CSV.csv") %>%
+  mutate(
+    dob = dmy(dob),
+    debut = ymd(debut),
+    finalGame = ymd(finalGame),
+    Month = month(dob, label = TRUE),
+    finalYear = year(finalGame),
+    debutYear = year(debut),
+    careerYears = finalYear - debutYear
+  ) %>%
+  select(careerYears, weight, height) %>%
+  na.omit()
+
+batting <- read.csv("C:/Users/pgiom/Downloads/R/Batting.csv")
+pitching <- read.csv("C:/Users/pgiom/Downloads/Pitching.csv")
+salaries <- read.csv("C:/Users/pgiom/Downloads/Salaries.csv")
+people <- read.csv("C:/Users/pgiom/Downloads/R/People_CSV.csv")
+```
+
+#Seasons by weight
+
+```{r}
+seasonsByWeight <- people %>%
+  group_by(careerYears) %>%
+  summarize(averageWeight = mean(weight), averageHeight = mean(height), .groups = "drop")
+```
+
+#Plot of Seasons by Weight
+```{r}
+ggplot(seasonsByWeight, aes(x = careerYears, y = averageWeight)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  theme_minimal() +
+  labs(title = "Average Weight by Career Years", x = "Career Years", y = "Average Weight")
+```
+
+
+# Regression model: Store the model object for later use and avoid redundant computations.
+```{r}
+linearRegModel <- lm(averageWeight ~ careerYears, data = seasonsByWeight)
+summary(linearRegModel)
+```
+
+
+# Partition the data into test and training sets using set.seed for reproducibility.
+```{r}
+set.seed(123) # Set seed for reproducibility
+partition <- sort(sample(nrow(seasonsByWeight), nrow(seasonsByWeight)*.8))
+train_set <- seasonsByWeight[partition, ]
+test_indices <- setdiff(1:nrow(seasonsByWeight), partition)
+test_set <- seasonsByWeight[test_indices, ]
+
+# Fit the model using the training set
+linRegTrain <- lm(averageWeight ~ careerYears, data = train_set)
+summary(linRegTrain)
+
+# Make predictions and calculate residuals on the test set
+test_set %>%
+  add_predictions(linRegTrain) %>%
+  add_residuals(linRegTrain) -> testSet
+
+# Calculate the average of residuals
+avg_resid <- mean(testSet$resid)
+avg_resid
+
+# Calculate and summarize the mean squared error (MSE)
+testSet %>%
+  mutate(sq_error = resid^2) %>%
+  summarize(MSE = mean(sq_error)) -> testSetSummary
+
+testSetSummary$MSE
+
+
+```
+
+
+# Use the model to predict on the training set, then calculate MSE on the test set.
+```{r}
+linRegTrain <- lm(averageWeight ~ careerYears, data = train_set)
+summary(linRegTrain)
+
+predictions <- predict(linRegTrain, newdata = test_set)
+MSE <- mean((test_set$averageWeight - predictions) ^ 2)
+MSE
+```
+#Plots
+```{r}
+# Plot Runs vs StrikeOuts for pitchers
+ggplot(data = pitching, aes(x = SO, y =R )) +
+  geom_point(alpha = 0.5) +  # setting alpha for better visibility if points overlap
+  labs(title = "Runs Allowed vs. Strikeouts for Pitchers",
+       x = "Runs Allowed",
+       y = "Strikeouts") +
+  theme_minimal()
+```
+#Salaries
+```{r}
+#Top Hitter / Top Pitcher
+best_hitter <- batting[which.max(batting$HR), ]
+
+# Filter out the data for the two best players
+players_salaries <- salaries %>%
+  filter(playerID %in% c("bondsba01", "johnsra05"))
+
+#bar chart for salaries
+ggplot(players_salaries, aes(x = factor(yearID), y = salary, fill = playerID)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Year", y = "Salary", fill = "Player ID") +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::dollar_format()) +
+  ggtitle("Salary Comparison of bondsba01 and johnsra05") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+#BAOpp vs. Strikeouts visualization
+```{r}
+#get rid of NA values and values greater than 0.5
+clean_pitching <- pitching %>%
+  na.omit() %>%
+  filter(BAOpp <= 0.5) 
+  
+ggplot(clean_pitching, aes(x = BAOpp, y = SO, color=yearID)) +
+  geom_point() +  # Use geom_point for scatter plot
+  labs(x = "Opponent's Batting Average (BAOpp)", y = "Strike Outs (SO)",
+       title = "Relationship between BAOpp and Strike Outs") +
+  theme_minimal() +
+  geom_smooth(method = "lm", se = FALSE)  # Adds a linear regression line without confidence interval
+```
+#Runs vs. Strikeouts
+```{r}
+hist(pitching$ERA)
+clean_pitching <- pitching %>%
+  na.omit() %>%
+  filter(ERA <=10)
+  
+#scatter plot with data mined 
+ggplot(clean_pitching, aes(x = SO, y = ERA)) +
+  geom_point() +  # Use geom_point for a scatter plot
+  labs(x = "Strikeouts (SO)", y = "Earned Run Average (ERA)",
+       title = "Relationship between Runs and Strikeouts for Pitchers") +
+  theme_minimal() +
+  geom_smooth()  
+```
+
